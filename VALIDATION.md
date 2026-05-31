@@ -123,10 +123,35 @@ Use the `folderId` from step 2.2 in each call.
 
 ---
 
+## Confirmed quirks (found in a real Automation Cloud tenant)
+
+These were hit during live validation and are already handled in the code — kept
+here so you recognize them if they resurface on another tenant/version:
+
+- **`/odata/QueueItems` caps `$top` at 100.** Asking for more →
+  `400 "The field take must be between 0 and 100"` (errorCode 1009). The client
+  caps queue calls at 100 and paginates the throughput query via `#getAllPages`
+  (`$skip` in pages of 100). If a Jobs/Sessions call ever returns the same error,
+  cap or paginate it too.
+- **Jobs filters on `ReleaseName`, not `ProcessName`.** `ProcessName eq '...'` →
+  `400 "Invalid OData query options / Could not find a property named ..."`.
+  `ProcessName` is present in the *response* but isn't filterable; the filterable
+  field is `ReleaseName`. Used in the throughput query and the stuck-job baseline.
+- **Dates worked unquoted.** `CreationTime gt 2026-05-31T...Z` (no `datetime'...'`
+  wrapper) returned 200 on this tenant. If another tenant 400s on it, switch to
+  the `datetime` literal.
+- **GUID keys worked unquoted.** `Key eq {guid}` / `JobKey eq {guid}` returned 200.
+  If a tenant 400s, wrap as `guid'...'`.
+- **`/odata/Folders` returned folders directly** (no `GetFoldersForCurrentUser`
+  needed) and **`/odata/Sessions` returned robot state fine.** If a tenant differs,
+  see steps 2 and 5.
+
 ## Quick triage of failures
 
 - **401 everywhere** → PAT wrong/expired or base URL missing `/orchestrator_`.
-- **403 on one entity** → PAT missing that entity's View scope.
+- **403 on one entity** → PAT missing that entity's Read scope (e.g. `OR.Execution.Read` for triggers).
+- **400 "take must be between 0 and 100"** → `$top > 100` on QueueItems; cap/paginate.
+- **400 "Could not find a property named ..."** → wrong field in `$filter` (e.g. `ProcessName` → use `ReleaseName` on Jobs).
 - **400 on a date filter** → `CreationTime gt {iso}` format; try `datetime` literal.
 - **400 on Key/JobKey** → GUID needs quoting (`guid'...'`).
 - **Empty when data should exist** → wrong `folderId` (folder header), or the
