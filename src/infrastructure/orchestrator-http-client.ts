@@ -81,6 +81,30 @@ export class OrchestratorHttpClient {
         return body.value ?? [];
     }
 
+    /**
+     * Fetch ALL pages of an OData collection by looping `$skip` in pages of
+     * `pageSize` (some endpoints — e.g. QueueItems — cap `$top` at 100). Stops
+     * when a page returns fewer than `pageSize`, or at `maxItems` (safety cap so
+     * a huge queue can't hang the agent).
+     */
+    async #getAllPages<T>(
+        path: string,
+        params: Record<string, string | number | undefined>,
+        folderId?: string,
+        pageSize = 100,
+        maxItems = 2000,
+    ): Promise<T[]> {
+        const all: T[] = [];
+        for (let skip = 0; skip < maxItems; skip += pageSize) {
+            const qs = this.#query({ ...params, $top: pageSize, $skip: skip });
+            const res = await this.#get(`${path}${qs}`, folderId);
+            const page = await this.#value<T>(res);
+            all.push(...page);
+            if (page.length < pageSize) break; // last page
+        }
+        return all.slice(0, maxItems);
+    }
+
     /** Build an OData query string from params, skipping undefined values. */
     #query(params: Record<string, string | number | undefined>): string {
         const parts: string[] = [];
@@ -189,7 +213,8 @@ export class OrchestratorHttpClient {
         folderId?: string,
     ): Promise<Job[]> {
         const qs = this.#query({
-            $filter: `State eq 'Successful' and ProcessName eq '${processName.replace(/'/g, "''")}'`,
+            // Jobs OData filters on ReleaseName (process name), not ProcessName.
+            $filter: `State eq 'Successful' and ReleaseName eq '${processName.replace(/'/g, "''")}'`,
             $orderby: "EndTime desc",
             $top: top,
         });
@@ -198,7 +223,7 @@ export class OrchestratorHttpClient {
     }
 
     /** Queue items still in New (never picked up), oldest first. */
-    async listNewQueueItems(top = 200, folderId?: string): Promise<QueueItem[]> {
+    async listNewQueueItems(top = 100, folderId?: string): Promise<QueueItem[]> {
         const qs = this.#query({
             $filter: `Status eq 'New'`,
             $orderby: "CreationTime asc",
@@ -223,32 +248,32 @@ export class OrchestratorHttpClient {
     async listJobsByProcessSince(
         processName: string,
         sinceIso: string,
-        top = 1000,
         folderId?: string,
     ): Promise<Job[]> {
-        const qs = this.#query({
-            $filter: `ProcessName eq '${processName.replace(/'/g, "''")}' and CreationTime gt ${sinceIso}`,
-            $orderby: "CreationTime asc",
-            $top: top,
-        });
-        const res = await this.#get(`/odata/Jobs${qs}`, folderId);
-        return this.#value<Job>(res);
+        return this.#getAllPages<Job>(
+            "/odata/Jobs",
+            {
+                $filter: `ReleaseName eq '${processName.replace(/'/g, "''")}' and CreationTime gt ${sinceIso}`,
+                $orderby: "CreationTime asc",
+            },
+            folderId,
+        );
     }
 
-    /** Queue items created within a window for one queue (throughput). */
+    /** Queue items created within a window for one queue (throughput). Paginated. */
     async listQueueItemsByQueueSince(
         queueDefinitionId: number,
         sinceIso: string,
-        top = 1000,
         folderId?: string,
     ): Promise<QueueItem[]> {
-        const qs = this.#query({
-            $filter: `QueueDefinitionId eq ${queueDefinitionId} and CreationTime gt ${sinceIso}`,
-            $orderby: "CreationTime asc",
-            $top: top,
-        });
-        const res = await this.#get(`/odata/QueueItems${qs}`, folderId);
-        return this.#value<QueueItem>(res);
+        return this.#getAllPages<QueueItem>(
+            "/odata/QueueItems",
+            {
+                $filter: `QueueDefinitionId eq ${queueDefinitionId} and CreationTime gt ${sinceIso}`,
+                $orderby: "CreationTime asc",
+            },
+            folderId,
+        );
     }
 
     /** Resolve a queue name to its definition (id) within a folder. */

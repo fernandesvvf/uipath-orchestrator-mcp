@@ -184,7 +184,7 @@ export class OrchestratorService {
             this.summarizeIncidents(sinceIso, folderId),
             this.findStuckJobs(undefined, folderId),
             this.getRobotHealth(folderId),
-            this.getQueueBacklog("Failed", 200, folderId),
+            this.getQueueBacklog("Failed", 100, folderId),
         ]);
 
         return {
@@ -206,7 +206,7 @@ export class OrchestratorService {
         thresholdMinutes?: number,
         folderId?: string,
     ): Promise<StalledQueueItem[]> {
-        const items = await this.#client.listNewQueueItems(200, folderId);
+        const items = await this.#client.listNewQueueItems(100, folderId);
         const now = Date.now();
         const threshold = thresholdMinutes ?? DEFAULT_THRESHOLD_MIN;
         const source: StalledQueueItem["thresholdSource"] =
@@ -302,7 +302,7 @@ export class OrchestratorService {
         const buckets = new Map<string, ThroughputDay>();
 
         if (targetType === "process") {
-            const jobs = await this.#client.listJobsByProcessSince(target, sinceIso, 1000, folderId);
+            const jobs = await this.#client.listJobsByProcessSince(target, sinceIso, folderId);
             for (const job of jobs) {
                 const day = dayKey(job.CreationTime);
                 if (!day) continue;
@@ -314,7 +314,7 @@ export class OrchestratorService {
         } else {
             const def = await this.#client.findQueueDefinition(target, folderId);
             if (!def) throw new Error(`No queue named "${target}" in this folder.`);
-            const items = await this.#client.listQueueItemsByQueueSince(def.Id, sinceIso, 1000, folderId);
+            const items = await this.#client.listQueueItemsByQueueSince(def.Id, sinceIso, folderId);
             for (const item of items) {
                 const day = dayKey(item.CreationTime ?? null);
                 if (!day) continue;
