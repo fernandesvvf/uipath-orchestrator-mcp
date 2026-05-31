@@ -182,14 +182,29 @@ export class OrchestratorHttpClient {
     }
 
     /**
-     * Folders the current user can see. Tenant-level — NO folder header here.
-     * Returns name + id so the service can resolve a user's plain-text folder
-     * name into the id the other calls need.
+     * Folders the current user can see, INCLUDING personal workspaces.
+     * Tenant-level — NO folder header here. Returns name + id so the service can
+     * resolve a user's plain-text folder name into the id the other calls need.
+     *
+     * Personal workspaces live in a SEPARATE endpoint (/odata/PersonalWorkspaces)
+     * and are NOT returned by /odata/Folders, so we fetch both and merge. The
+     * workspace's `Name` is mapped to `DisplayName` to match the Folder shape.
      */
     async listFolders(top = 200): Promise<Folder[]> {
-        const qs = this.#query({ $orderby: "DisplayName", $top: top });
-        const res = await this.#get(`/odata/Folders${qs}`);
-        return this.#value<Folder>(res);
+        const foldersQs = this.#query({ $orderby: "DisplayName", $top: top });
+        const [foldersRes, wsRes] = await Promise.all([
+            this.#get(`/odata/Folders${foldersQs}`),
+            this.#get(`/odata/PersonalWorkspaces${this.#query({ $top: top })}`),
+        ]);
+        const folders = await this.#value<Folder>(foldersRes);
+        const workspaces = await this.#value<{ Id: number; Key?: string; Name?: string }>(wsRes);
+        const mappedWorkspaces: Folder[] = workspaces.map((w) => ({
+            Id: w.Id,
+            Key: w.Key,
+            DisplayName: w.Name ?? "(personal workspace)",
+            FullyQualifiedName: w.Name ?? null,
+        }));
+        return [...folders, ...mappedWorkspaces];
     }
 
     /** Jobs currently in Running state (for stuck detection). */
