@@ -118,6 +118,23 @@ Set these in `.env` (copy from `.env.example`) or in `.vscode/mcp.json`:
 overrides the `ORG_UNIT_ID` env default, so the agent can target any folder
 dynamically while the common case stays config-only.
 
+### Finding the `ORG_UNIT_ID` (folder id)
+
+It's optional — leave it empty and let `find_folders` resolve folders by name.
+If you do want a fixed default, the folder id can be found three ways:
+
+1. **From the Orchestrator URL** — open the folder; the address bar has
+   `...?fid=2032&tid=8` → `fid` is the folder id.
+2. **Via `find_folders`** — run the tool (e.g. in the Inspector) with part of the
+   folder name; the result includes each match's `Id`. This is what the tool
+   exists for — you never have to hunt for the number.
+3. **Via the API** — `GET /odata/Folders` and read the `Id` field.
+
+> ⚠️ The numeric `FolderId` **changes if you switch licensing plan** (e.g.
+> Trial → Enterprise); the `FolderKey` (GUID) stays stable. If a fixed
+> `ORG_UNIT_ID` suddenly stops working, the id likely changed — re-resolve it
+> with `find_folders`.
+
 ## Generating the PAT (UiPath Automation Cloud)
 
 The `UIPATH_PAT` is a **Personal Access Token** generated in your UiPath user
@@ -156,11 +173,28 @@ All tools here are read-only, so grant only read/view access to:
 > user who created it — that user needs at least View on those resources in the
 > target folder(s).
 
-### Token base URL
+### Base URL — finding `<org>` and `<tenant>`
 
-The `UIPATH_BASE_URL` is your tenant's Orchestrator URL plus `orchestrator_`:
-`https://cloud.uipath.com/<org>/<tenant>/orchestrator_` (find `<org>`/`<tenant>`
-in the browser address bar while using Orchestrator).
+`UIPATH_BASE_URL` is your tenant's Orchestrator URL plus the literal
+`orchestrator_` suffix. The two placeholders come straight from the browser
+address bar while you're in Orchestrator:
+
+```
+https://cloud.uipath.com/AcmeCorp/Production/orchestrator_/...
+                         └──┬───┘ └───┬────┘
+                          <org>    <tenant>
+```
+
+- **`<org>`** — your organization (account) name, the first path segment after
+  `cloud.uipath.com/`. Also shown in **Admin → Organization settings**.
+- **`<tenant>`** — the tenant name, the second segment. Also in the tenant
+  switcher (top of Orchestrator) and under **Admin → Tenants**.
+
+So for the example above: `UIPATH_BASE_URL=https://cloud.uipath.com/AcmeCorp/Production/orchestrator_`
+
+> On-prem / Automation Suite installs use a different host (e.g.
+> `https://orchestrator.mycompany.com/<tenant>/orchestrator_`) — copy whatever
+> precedes the app path in your address bar and append `orchestrator_`.
 
 ## Security model
 
