@@ -1,15 +1,10 @@
 {
+  "//": "Open THIS folder (uipath-orchestrator-mcp) as the VS Code workspace so the relative paths resolve. Fill secrets in .env (gitignored). If you open a parent folder instead, copy this to .vscode/mcp.local.json and use absolute paths.",
   "servers": {
     "uipath-orchestrator-mcp": {
       "command": "node",
-      "args": ["--experimental-strip-types", "./src/index.ts"],
-      "env": {
-        "UIPATH_BASE_URL": "https://cloud.uipath.com/<org>/<tenant>/orchestrator_",
-        "UIPATH_PAT": "<paste-your-personal-access-token-here>",
-        "ORG_UNIT_ID": "<default-folder-id-optional>",
-        "RATE_LIMIT_BURST": "20",
-        "RATE_LIMIT_PER_SEC": "5"
-      }
+      "args": ["--env-file-if-exists=.env", "./src/index.ts"],
+      "cwd": "${workspaceFolder}"
     }
   }
 }
