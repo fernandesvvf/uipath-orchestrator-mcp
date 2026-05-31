@@ -7,13 +7,16 @@ depend on earlier ones passing.
 
 ## 0. Setup
 
-1. Create a **read-only PAT** in Orchestrator (Admin → Personal Access Tokens).
-   Scopes needed (least privilege): **Jobs.View, Robots.View (Sessions),
-   Queues.View / Transactions.View (QueueItems + QueueDefinitions), Logs.View
-   (RobotLogs), Folders.View, Triggers/Schedules.View (ProcessSchedules)**.
-2. Find your tenant base URL: `https://cloud.uipath.com/<org>/<tenant>/orchestrator_`.
-3. Fill `.vscode/mcp.json`: `UIPATH_BASE_URL`, `UIPATH_PAT`. Leave `ORG_UNIT_ID`
-   empty for now (we test folder resolution first).
+1. Create a **read-only PAT** (Automation Cloud → user icon → **Preferences** →
+   **Personal Access Token**). Pick read/view scopes for: **Folders, Jobs,
+   Robots (Sessions), Queues/Transactions, Monitoring/Logs, Triggers/Schedules**.
+   Full step-by-step + scope→tool table: see `README.md` → "Generating the PAT".
+2. Find your base URL `https://cloud.uipath.com/<org>/<tenant>/orchestrator_`
+   (README → "Base URL — finding `<org>` and `<tenant>`").
+3. Configure the env — `cp .env.example .env`, then set `UIPATH_BASE_URL` and
+   `UIPATH_PAT`. Leave `ORG_UNIT_ID` empty for now (we test folder resolution
+   first). The Inspector loads `.env` automatically. (Alternatively, put the same
+   values in `.vscode/mcp.json`'s `env` block.)
 4. Launch the Inspector:
    ```bash
    npm run mcp:inspect
