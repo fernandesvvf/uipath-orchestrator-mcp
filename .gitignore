@@ -1,0 +1,19 @@
+# deps
+node_modules/
+
+# logs
+*.log
+npm-debug.log*
+
+# env / secrets (NUNCA versionar PAT)
+.env
+.env.*
+*.local
+
+# editor
+.DS_Store
+*.swp
+
+# build (se um dia houver)
+dist/
+build/
