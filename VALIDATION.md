@@ -145,6 +145,17 @@ here so you recognize them if they resurface on another tenant/version:
 - **`/odata/Folders` returned folders directly** (no `GetFoldersForCurrentUser`
   needed) and **`/odata/Sessions` returned robot state fine.** If a tenant differs,
   see steps 2 and 5.
+- **Personal workspaces are NOT in `/odata/Folders`.** They live in a separate
+  `/odata/PersonalWorkspaces` endpoint (fields `Name`/`Id`, no `IsPersonal` on
+  Folders — filtering by it 400s). `find_folders` fetches both and merges,
+  mapping the workspace `Name` → `DisplayName`.
+- **`outputSchema` is STRICT — OData rows carry extra fields.** A raw Folder/Job/
+  Session/QueueItem row has many more properties than our schemas declare, and the
+  SDK rejects the call with `data ... should NOT have additional properties` once
+  real data flows (empty `[]` tenants don't trigger it — only rows with data do).
+  The client projects every row to the declared shape via per-entity mappers
+  (`toJob`/`toRobotSession`/...). If you add a field to a domain schema, also map
+  it; if a new tool returns a raw row, map it too.
 
 ## Quick triage of failures
 
@@ -152,6 +163,8 @@ here so you recognize them if they resurface on another tenant/version:
 - **403 on one entity** → PAT missing that entity's Read scope (e.g. `OR.Execution.Read` for triggers).
 - **400 "take must be between 0 and 100"** → `$top > 100` on QueueItems; cap/paginate.
 - **400 "Could not find a property named ..."** → wrong field in `$filter` (e.g. `ProcessName` → use `ReleaseName` on Jobs).
+- **"should NOT have additional properties"** → a raw OData row leaked extra fields; map it to the declared schema in the client.
+- **Folder by name not found (but exists)** → it's a personal workspace; `find_folders` merges `/odata/PersonalWorkspaces`.
 - **400 on a date filter** → `CreationTime gt {iso}` format; try `datetime` literal.
 - **400 on Key/JobKey** → GUID needs quoting (`guid'...'`).
 - **Empty when data should exist** → wrong `folderId` (folder header), or the
