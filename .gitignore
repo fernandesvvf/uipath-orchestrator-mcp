@@ -8,6 +8,7 @@ npm-debug.log*
 # env / secrets (NUNCA versionar PAT)
 .env
 .env.*
+!.env.example
 *.local
 
 # editor

@@ -59,29 +59,108 @@ thresholds are hybrid: an explicit `thresholdMinutes` always wins; otherwise
 `find_stuck_jobs` derives a per-process baseline (2× the average duration of
 recent successful runs) and falls back to 60 minutes when history is too thin.
 
-## Run
+## Quick start
+
+Follow in order — each step builds on the previous:
 
 ```bash
+# 1. install dependencies (Node >= 22.9 required)
 npm install
-UIPATH_PAT=<pat> UIPATH_BASE_URL=https://cloud.uipath.com/<org>/<tenant>/orchestrator_ npm start
-npm test                 # unit (no backend) + e2e (skipped unless UIPATH_* set)
-npm run mcp:inspect      # open MCP Inspector to poke tools by hand
+
+# 2. generate your PAT  → see "Generating the PAT" below
+
+# 3. create your .env from the template, then fill in the values
+cp .env.example .env        # (PowerShell: Copy-Item .env.example .env)
+#    edit .env → paste UIPATH_PAT and set UIPATH_BASE_URL
+
+# 4. try it in the browser (MCP Inspector) — loads .env automatically
+npm run mcp:inspect
+
+# other commands:
+npm start     # run the server on stdio (loads .env automatically)
+npm test      # unit tests (no backend); e2e skipped unless UIPATH_* set
 ```
 
-Wire into VS Code / Copilot via `.vscode/mcp.json` (fill in PAT + base URL).
+The npm scripts load `.env` automatically (`node --env-file-if-exists=.env`).
+No `.env`? They still run — `npm start`/`mcp:inspect` just won't be authenticated
+(calls return 401). To use the server from VS Code / an agent instead of `.env`,
+put the same values in `.vscode/mcp.json`'s `env` block.
+
+## Inspect / test in the browser (MCP Inspector)
+
+Open a browser UI that connects to the server over stdio, lists all tools /
+resources / prompts, and lets you run them by hand:
+
+```bash
+npm run mcp:inspect
+```
+
+It prints a `http://localhost:...` URL — open it, click **Connect**, pick a tool,
+fill the input, **Run**. With a filled `.env` the calls hit your tenant; without
+a PAT the tools still *list* (good for a structure smoke test) but *calling* them
+returns 401.
+
+Suggested first check: run `find_folders` with an empty `query` — if it returns
+folders, your PAT + base URL are correct. See `VALIDATION.md` for the full checklist.
 
 ## Config (env)
+
+Set these in `.env` (copy from `.env.example`) or in `.vscode/mcp.json`:
 
 | Var | Meaning |
 |-----|---------|
 | `UIPATH_BASE_URL` | `https://cloud.uipath.com/<org>/<tenant>/orchestrator_` |
-| `UIPATH_PAT` | Personal Access Token, **read-only scope** (View Jobs/Robots/Queues/Logs). |
+| `UIPATH_PAT` | Personal Access Token, **read-only scopes** (see "Generating the PAT"). |
 | `ORG_UNIT_ID` | Default folder id (`X-UIPATH-OrganizationUnitId`). Optional. |
-| `RATE_LIMIT_BURST` / `RATE_LIMIT_PER_SEC` | Client-side token bucket. |
+| `RATE_LIMIT_BURST` / `RATE_LIMIT_PER_SEC` | Client-side token bucket. Optional (defaults 20 / 5). |
 
 **Folder scoping is hybrid:** each tool takes an optional `folderId` that
 overrides the `ORG_UNIT_ID` env default, so the agent can target any folder
 dynamically while the common case stays config-only.
+
+## Generating the PAT (UiPath Automation Cloud)
+
+The `UIPATH_PAT` is a **Personal Access Token** generated in your UiPath user
+preferences ([official docs](https://docs.uipath.com/automation-cloud/automation-cloud/latest/api-guide/personal-access-tokens)):
+
+1. Sign in to Automation Cloud, click the **user icon** (top-right) → **Preferences**.
+2. In the left menu, open **Personal Access Token**.
+3. Click **Generate new token**.
+4. Fill in:
+   - **Name** — e.g. `uipath-orchestrator-mcp (read-only)`.
+   - **Expiration Date** — after this the token stops working (you'll regenerate).
+   - **Scopes → Resources** — pick the **smallest read-only set** the tools need
+     (see below).
+5. Click **Save**, then **copy the token immediately** — this is the *only* time
+   it's shown.
+6. Paste it into your `.env` as `UIPATH_PAT=...` (step 3 of Quick start), or into
+   `.vscode/mcp.json`. **Never commit it** — `.env` is gitignored.
+
+### Scopes to select (least privilege, read-only)
+
+All tools here are read-only, so grant only read/view access to:
+
+| Resource (scope prefix `OR.…`) | Used by |
+|--------------------------------|---------|
+| **Folders** | `find_folders`, every folder-scoped call |
+| **Jobs** | `list_failed_jobs`, `summarize_incidents`, `find_stuck_jobs`, `explain_failure`, `get_throughput`, `get_folder_overview` |
+| **Robots** (Sessions) | `get_robot_health`, `diagnose_queue_stall`, `get_folder_overview` |
+| **Queues** / Transactions | `get_queue_backlog`, `find_stalled_queue_items`, `get_throughput`, `diagnose_queue_stall` |
+| **Monitoring / Logs** | `get_job_logs`, `explain_failure` |
+| **Triggers / Schedules** | `diagnose_queue_stall` |
+
+> Scope names follow the `OR.<Resource>` convention; the View/Read level comes
+> from the **user's role permissions** per endpoint (GET needs View/Read). When
+> in doubt, start with the read/view scopes for the resources above and widen
+> only if a tool returns **403**. The token also inherits the permissions of the
+> user who created it — that user needs at least View on those resources in the
+> target folder(s).
+
+### Token base URL
+
+The `UIPATH_BASE_URL` is your tenant's Orchestrator URL plus `orchestrator_`:
+`https://cloud.uipath.com/<org>/<tenant>/orchestrator_` (find `<org>`/`<tenant>`
+in the browser address bar while using Orchestrator).
 
 ## Security model
 
