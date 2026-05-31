@@ -122,6 +122,10 @@ export type IncidentGroup = z.infer<typeof IncidentGroupSchema>;
 
 export const FolderSchema = z.object({
     Id: z.number().describe("Folder id (used internally for scoping; not shown to the user)"),
+    Key: z
+        .string()
+        .optional()
+        .describe("Folder GUID — stable across licensing changes, unlike the numeric Id"),
     DisplayName: z.string().describe("Human folder name (what the user recognizes)"),
     FullyQualifiedName: z
         .string()

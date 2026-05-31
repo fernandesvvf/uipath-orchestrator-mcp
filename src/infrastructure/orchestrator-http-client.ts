@@ -126,7 +126,7 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/Jobs${qs}`, folderId);
-        return this.#value<Job>(res);
+        return (await this.#value<Raw>(res)).map(toJob);
     }
 
     /** Jobs in any state (optionally filtered), newest first. */
@@ -137,14 +137,14 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/Jobs${qs}`, folderId);
-        return this.#value<Job>(res);
+        return (await this.#value<Raw>(res)).map(toJob);
     }
 
     /** Fetch a single job by its Key (GUID), or null if not found. */
     async getJobByKey(jobKey: string, folderId?: string): Promise<Job | null> {
         const qs = this.#query({ $filter: `Key eq ${jobKey}`, $top: 1 });
         const res = await this.#get(`/odata/Jobs${qs}`, folderId);
-        const jobs = await this.#value<Job>(res);
+        const jobs = (await this.#value<Raw>(res)).map(toJob);
         return jobs[0] ?? null;
     }
 
@@ -156,14 +156,14 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/RobotLogs${qs}`, folderId);
-        return this.#value<RobotLog>(res);
+        return (await this.#value<Raw>(res)).map(toRobotLog);
     }
 
     /** Current robot/runtime sessions (robot health). */
     async listRobotSessions(top = 100, folderId?: string): Promise<RobotSession[]> {
         const qs = this.#query({ $top: top });
         const res = await this.#get(`/odata/Sessions${qs}`, folderId);
-        return this.#value<RobotSession>(res);
+        return (await this.#value<Raw>(res)).map(toRobotSession);
     }
 
     /** Queue items, optionally filtered by status, newest first. */
@@ -178,7 +178,7 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/QueueItems${qs}`, folderId);
-        return this.#value<QueueItem>(res);
+        return (await this.#value<Raw>(res)).map(toQueueItem);
     }
 
     /**
@@ -196,7 +196,16 @@ export class OrchestratorHttpClient {
             this.#get(`/odata/Folders${foldersQs}`),
             this.#get(`/odata/PersonalWorkspaces${this.#query({ $top: top })}`),
         ]);
-        const folders = await this.#value<Folder>(foldersRes);
+        // Map BOTH sources down to the declared Folder shape only. The raw
+        // OData rows carry many extra fields; outputSchema is strict, so we
+        // must not leak them into structuredContent ("additional properties").
+        type RawFolder = { Id: number; Key?: string; DisplayName?: string; FullyQualifiedName?: string | null };
+        const folders = (await this.#value<RawFolder>(foldersRes)).map((f) => ({
+            Id: f.Id,
+            Key: f.Key,
+            DisplayName: f.DisplayName ?? "(folder)",
+            FullyQualifiedName: f.FullyQualifiedName ?? null,
+        }));
         const workspaces = await this.#value<{ Id: number; Key?: string; Name?: string }>(wsRes);
         const mappedWorkspaces: Folder[] = workspaces.map((w) => ({
             Id: w.Id,
@@ -215,7 +224,7 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/Jobs${qs}`, folderId);
-        return this.#value<Job>(res);
+        return (await this.#value<Raw>(res)).map(toJob);
     }
 
     /**
@@ -234,7 +243,7 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/Jobs${qs}`, folderId);
-        return this.#value<Job>(res);
+        return (await this.#value<Raw>(res)).map(toJob);
     }
 
     /** Queue items still in New (never picked up), oldest first. */
@@ -245,14 +254,14 @@ export class OrchestratorHttpClient {
             $top: top,
         });
         const res = await this.#get(`/odata/QueueItems${qs}`, folderId);
-        return this.#value<QueueItem>(res);
+        return (await this.#value<Raw>(res)).map(toQueueItem);
     }
 
     /** Triggers/schedules in a folder (for stall diagnosis). */
     async listProcessSchedules(top = 200, folderId?: string): Promise<ProcessSchedule[]> {
         const qs = this.#query({ $top: top });
         const res = await this.#get(`/odata/ProcessSchedules${qs}`, folderId);
-        return this.#value<ProcessSchedule>(res);
+        return (await this.#value<Raw>(res)).map(toProcessSchedule);
     }
 
     /**
@@ -265,7 +274,7 @@ export class OrchestratorHttpClient {
         sinceIso: string,
         folderId?: string,
     ): Promise<Job[]> {
-        return this.#getAllPages<Job>(
+        const rows = await this.#getAllPages<Raw>(
             "/odata/Jobs",
             {
                 $filter: `ReleaseName eq '${processName.replace(/'/g, "''")}' and CreationTime gt ${sinceIso}`,
@@ -273,6 +282,7 @@ export class OrchestratorHttpClient {
             },
             folderId,
         );
+        return rows.map(toJob);
     }
 
     /** Queue items created within a window for one queue (throughput). Paginated. */
@@ -281,7 +291,7 @@ export class OrchestratorHttpClient {
         sinceIso: string,
         folderId?: string,
     ): Promise<QueueItem[]> {
-        return this.#getAllPages<QueueItem>(
+        const rows = await this.#getAllPages<Raw>(
             "/odata/QueueItems",
             {
                 $filter: `QueueDefinitionId eq ${queueDefinitionId} and CreationTime gt ${sinceIso}`,
@@ -289,6 +299,7 @@ export class OrchestratorHttpClient {
             },
             folderId,
         );
+        return rows.map(toQueueItem);
     }
 
     /** Resolve a queue name to its definition (id) within a folder. */
@@ -304,4 +315,79 @@ export class OrchestratorHttpClient {
         const defs = await this.#value<{ Id: number; Name: string }>(res);
         return defs[0] ?? null;
     }
+}
+
+/**
+ * MAPPERS — the OData rows carry many more fields than our domain schemas
+ * declare. outputSchema is STRICT, so we project each raw row down to exactly
+ * the declared shape before it can reach structuredContent. One mapper per
+ * entity; drop anything not in the schema.
+ */
+type Raw = Record<string, unknown>;
+
+function toJob(r: Raw): Job {
+    return {
+        Id: r.Id as number,
+        Key: r.Key as string | undefined,
+        State: r.State as Job["State"],
+        ProcessName: r.ProcessName as string | undefined,
+        StartTime: r.StartTime as string | null | undefined,
+        EndTime: r.EndTime as string | null | undefined,
+        CreationTime: r.CreationTime as string | undefined,
+        HostMachineName: r.HostMachineName as string | null | undefined,
+        Info: r.Info as string | null | undefined,
+        HasMediaRecorded: r.HasMediaRecorded as boolean | undefined,
+        OutputArguments: r.OutputArguments as string | null | undefined,
+    };
+}
+
+function toRobotSession(r: Raw): RobotSession {
+    return {
+        Id: r.Id as number | undefined,
+        MachineName: r.MachineName as string | null | undefined,
+        HostMachineName: r.HostMachineName as string | null | undefined,
+        RobotName: r.RobotName as string | null | undefined,
+        State: r.State as RobotSession["State"],
+        ReportingTime: r.ReportingTime as string | null | undefined,
+        IsUnresponsive: r.IsUnresponsive as boolean | undefined,
+    };
+}
+
+function toQueueItem(r: Raw): QueueItem {
+    const ex = r.ProcessingException as Raw | null | undefined;
+    return {
+        Id: r.Id as number,
+        QueueDefinitionId: r.QueueDefinitionId as number | undefined,
+        Status: r.Status as QueueItem["Status"],
+        Reference: r.Reference as string | null | undefined,
+        Priority: r.Priority as string | null | undefined,
+        CreationTime: r.CreationTime as string | null | undefined,
+        StartProcessing: r.StartProcessing as string | null | undefined,
+        EndProcessing: r.EndProcessing as string | null | undefined,
+        RetryNumber: r.RetryNumber as number | undefined,
+        ProcessingException: ex
+            ? { Reason: ex.Reason as string | null | undefined, Type: ex.Type as string | null | undefined }
+            : (ex as null | undefined),
+    };
+}
+
+function toRobotLog(r: Raw): RobotLog {
+    return {
+        Id: r.Id as number | undefined,
+        Level: r.Level as string | undefined,
+        Message: r.Message as string | undefined,
+        TimeStamp: r.TimeStamp as string | undefined,
+        ProcessName: r.ProcessName as string | null | undefined,
+        JobKey: r.JobKey as string | null | undefined,
+    };
+}
+
+function toProcessSchedule(r: Raw): ProcessSchedule {
+    return {
+        Id: r.Id as number | undefined,
+        Name: r.Name as string | null | undefined,
+        ReleaseName: r.ReleaseName as string | null | undefined,
+        Enabled: r.Enabled as boolean | undefined,
+        StartProcessCron: r.StartProcessCron as string | null | undefined,
+    };
 }
